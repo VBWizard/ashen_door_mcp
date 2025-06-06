@@ -1,10 +1,13 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel
 import psycopg2
 import os
 from typing import Optional, List
 from datetime import datetime
 import traceback
+
+from dotenv import load_dotenv
+load_dotenv()
 
 app = FastAPI()
 
@@ -13,6 +16,7 @@ DB_HOST = os.getenv("DB_HOST")
 DB_NAME = os.getenv("DB_NAME")
 DB_USER = os.getenv("DB_USER")
 DB_PASS = os.getenv("DB_PASS")
+AUTH_TOKEN = os.getenv("AUTH_TOKEN")
 
 # Connect to the PostgreSQL database
 def get_db_connection():
@@ -37,13 +41,20 @@ class ChatEntry(BaseModel):
     title: Optional[str]
     content: str
 
+# Validate bearer token
+def validate_token(authorization: Optional[str] = Header(None)):
+    if not authorization or authorization != f"Bearer {AUTH_TOKEN}":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
 @app.post("/query_chat_history", response_model=List[ChatEntry])
-def query_chat_history(query: ChatHistoryQuery):
+def query_chat_history(query: ChatHistoryQuery, authorization: Optional[str] = Header(None)):
+    validate_token(authorization)
+
     conn = get_db_connection()
     cur = conn.cursor()
 
     params = []
-    conditions = ["m.content ILIKE %s"]
+    conditions = ["m.content ILIKE %s", "m.author_role != 'tool'"]
     params.append(f"%{query.search_term}%")
 
     if query.author_role:
@@ -53,8 +64,6 @@ def query_chat_history(query: ChatHistoryQuery):
     if query.conversation_title:
         conditions.append("c.title ILIKE %s")
         params.append(f"%{query.conversation_title}%")
-
-    conditions.append("m.author_role != 'tool'")
 
     sql = f"""
         SELECT m.timestamp, m.author_role, c.title, m.content
@@ -73,7 +82,6 @@ def query_chat_history(query: ChatHistoryQuery):
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
-
     finally:
         cur.close()
         conn.close()
