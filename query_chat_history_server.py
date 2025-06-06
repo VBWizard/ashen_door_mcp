@@ -1,4 +1,5 @@
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 import psycopg2
 import os
@@ -17,6 +18,8 @@ DB_NAME = os.getenv("DB_NAME")
 DB_USER = os.getenv("DB_USER")
 DB_PASS = os.getenv("DB_PASS")
 AUTH_TOKEN = os.getenv("AUTH_TOKEN")
+
+security = HTTPBearer()
 
 # Connect to the PostgreSQL database
 def get_db_connection():
@@ -42,14 +45,15 @@ class ChatEntry(BaseModel):
     content: str
 
 # Validate bearer token
-def validate_token(authorization: Optional[str] = Header(None)):
-    if not authorization or authorization != f"Bearer {AUTH_TOKEN}":
+def validate_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    if credentials.credentials != AUTH_TOKEN:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 @app.post("/query_chat_history", response_model=List[ChatEntry])
-def query_chat_history(query: ChatHistoryQuery, authorization: Optional[str] = Header(None)):
-    validate_token(authorization)
-
+def query_chat_history(
+    query: ChatHistoryQuery,
+    credentials: HTTPAuthorizationCredentials = Depends(validate_token)
+):
     conn = get_db_connection()
     cur = conn.cursor()
 
