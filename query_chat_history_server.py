@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, Depends
+from fastapi import Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 import psycopg2
@@ -7,8 +8,14 @@ import re
 from typing import Optional, List
 from datetime import datetime
 import traceback
-
+import requests
+from fastapi.responses import RedirectResponse, JSONResponse
 from dotenv import load_dotenv
+
+GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
+GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
+REDIRECT_URI = "https://ashendoormcp-production.up.railway.app/auth/callback"
+DEV_REDIRECT_URI = "http://localhost:8000/auth/callback"
 load_dotenv()
 
 app = FastAPI()
@@ -20,7 +27,56 @@ DB_USER = os.getenv("DB_USER")
 DB_PASS = os.getenv("DB_PASS")
 AUTH_TOKEN = os.getenv("AUTH_TOKEN")
 
-security = HTTPBearer()
+security = HTTPBearer(auto_error=True)
+
+@app.get("/login")
+def login():
+    github_auth_url = (
+        f"https://github.com/login/oauth/authorize"
+        f"?client_id={GITHUB_CLIENT_ID}"
+        f"&redirect_uri={REDIRECT_URI}"
+        f"&scope=read:user"
+    )
+    return RedirectResponse(github_auth_url)
+
+@app.get("/auth/callback")
+def auth_callback(code: str):
+    token_response = requests.post(
+        "https://github.com/login/oauth/access_token",
+        headers={"Accept": "application/json"},
+        data={
+            "client_id": GITHUB_CLIENT_ID,
+            "client_secret": GITHUB_CLIENT_SECRET,
+            "code": code,
+            "redirect_uri": REDIRECT_URI,
+        },
+    )
+
+    if token_response.status_code != 200:
+        return JSONResponse(status_code=token_response.status_code, content={"error": "Token exchange failed"})
+
+    token_json = token_response.json()
+    access_token = token_json.get("access_token")
+
+    if not access_token:
+        return JSONResponse(status_code=400, content={"error": "No access token received"})
+
+    # Optional: fetch user info
+    user_info = requests.get(
+        "https://api.github.com/user",
+        headers={"Authorization": f"Bearer {access_token}"}
+    ).json()
+
+    return JSONResponse({
+        "message": "OAuth success",
+        "access_token": access_token,
+        "user": {
+            "login": user_info.get("login"),
+            "name": user_info.get("name"),
+            "avatar_url": user_info.get("avatar_url")
+        }
+    })
+
 
 # Connect to the PostgreSQL database
 def get_db_connection():
@@ -49,14 +105,39 @@ class ChatEntry(BaseModel):
 
 # Validate bearer token
 def validate_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    if credentials.credentials != AUTH_TOKEN:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+    token = credentials.credentials
+
+    # Allow legacy static token (fallback only)
+    if token == AUTH_TOKEN:
+        return
+
+    # Check if GitHub-style token
+    if token.startswith("gho_"):
+        user_info = requests.get(
+            "https://api.github.com/user",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+
+        if user_info.status_code != 200:
+            raise HTTPException(status_code=401, detail="Invalid GitHub token")
+
+        user = user_info.json()
+        github_login = user.get("login")
+
+        # Optionally restrict access to yourself only
+        if github_login != "VBWizard":
+            raise HTTPException(status_code=403, detail="Unauthorized GitHub user")
+
+        return
+
+    raise HTTPException(status_code=401, detail="Unauthorized token format")
 
 @app.post("/query_chat_history", response_model=List[ChatEntry])
 def query_chat_history(
     query: ChatHistoryQuery,
-    credentials: HTTPAuthorizationCredentials = Depends(validate_token)
+    credentials: HTTPAuthorizationCredentials = Security(security)
 ):
+    user = validate_token(credentials)  # Optionally return GitHub user info
     conn = get_db_connection()
     cur = conn.cursor()
 
