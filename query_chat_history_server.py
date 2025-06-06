@@ -3,6 +3,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 import psycopg2
 import os
+import re
 from typing import Optional, List
 from datetime import datetime
 import traceback
@@ -36,6 +37,7 @@ class ChatHistoryQuery(BaseModel):
     author_role: Optional[str] = None
     conversation_title: Optional[str] = None
     limit: Optional[int] = 10
+    context_radius: Optional[int] = 2500
 
 # Output schema
 class ChatEntry(BaseModel):
@@ -43,6 +45,7 @@ class ChatEntry(BaseModel):
     author: str
     title: Optional[str]
     content: str
+    truncated: Optional[bool] = False
 
 # Validate bearer token
 def validate_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
@@ -90,11 +93,44 @@ def query_chat_history(
         cur.close()
         conn.close()
 
-    return [
-        ChatEntry(
-            timestamp=row[0],
-            author=row[1],
-            title=row[2],
-            content=row[3]
-        ) for row in rows
-    ]
+    results = []
+    for row in rows:
+        content = row[3]
+        if len(content) <= query.context_radius:
+            results.append(ChatEntry(
+                timestamp=row[0],
+                author=row[1],
+                title=row[2],
+                content=content,
+                truncated=False
+            ))
+        else:
+            match = re.search(re.escape(query.search_term), content, re.IGNORECASE)
+            if match:
+                start = max(0, match.start() - query.context_radius // 2)
+                end = min(len(content), match.end() + query.context_radius // 2)
+                snippet = content[start:end]
+                if start > 0:
+                    snippet = "..." + snippet
+                if end < len(content):
+                    snippet = snippet + "..."
+                results.append(ChatEntry(
+                    timestamp=row[0],
+                    author=row[1],
+                    title=row[2],
+                    content=snippet,
+                    truncated=True
+                ))
+            else:
+                snippet = content[:query.context_radius]
+                if len(content) > query.context_radius:
+                    snippet += "..."
+                results.append(ChatEntry(
+                    timestamp=row[0],
+                    author=row[1],
+                    title=row[2],
+                    content=snippet,
+                    truncated=True
+                ))
+
+    return results
