@@ -12,6 +12,7 @@ import requests
 from fastapi.responses import RedirectResponse, JSONResponse
 from dotenv import load_dotenv
 
+print("👀 ENV KEYS:", list(os.environ.keys()))
 GITHUB_CLIENT_ID = os.environ["GITHUB_CLIENT_ID"]
 GITHUB_CLIENT_SECRET = os.environ["GITHUB_CLIENT_SECRET"]
 
