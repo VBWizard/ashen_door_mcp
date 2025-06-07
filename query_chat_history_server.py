@@ -12,8 +12,9 @@ import requests
 from fastapi.responses import RedirectResponse, JSONResponse
 from dotenv import load_dotenv
 
-GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
-GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
+GITHUB_CLIENT_ID = os.environ["GITHUB_CLIENT_ID"]
+GITHUB_CLIENT_SECRET = os.environ["GITHUB_CLIENT_SECRET"]
+
 REDIRECT_URI = "https://ashendoormcp-production.up.railway.app/auth/callback"
 DEV_REDIRECT_URI = "http://localhost:8000/auth/callback"
 load_dotenv()
@@ -21,11 +22,11 @@ load_dotenv()
 app = FastAPI()
 
 # Load database connection info from environment variables
-DB_HOST = os.getenv("DB_HOST")
-DB_NAME = os.getenv("DB_NAME")
-DB_USER = os.getenv("DB_USER")
-DB_PASS = os.getenv("DB_PASS")
-AUTH_TOKEN = os.getenv("AUTH_TOKEN")
+DB_HOST = os.environ["DB_HOST"]
+DB_NAME = os.environ["DB_NAME"]
+DB_USER = os.environ["DB_USER"]
+DB_PASS = os.environ["DB_PASS"]
+AUTH_TOKEN = os.environ["AUTH_TOKEN"]
 
 security = HTTPBearer(auto_error=True)
 
