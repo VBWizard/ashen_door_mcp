@@ -12,8 +12,7 @@ import requests
 from fastapi.responses import RedirectResponse, JSONResponse
 from dotenv import load_dotenv
 
-# load_dotenv()
-print("👀 ENV KEYS:", list(os.environ.keys()))
+load_dotenv()
 GITHUB_CLIENT_ID = os.environ["GITHUB_CLIENT_ID"]
 GITHUB_CLIENT_SECRET = os.environ["GITHUB_CLIENT_SECRET"]
 
@@ -43,6 +42,7 @@ def login():
 
 @app.get("/auth/callback")
 def auth_callback(code: str):
+    # Exchange the code for a token
     token_response = requests.post(
         "https://github.com/login/oauth/access_token",
         headers={"Accept": "application/json"},
@@ -63,22 +63,11 @@ def auth_callback(code: str):
     if not access_token:
         return JSONResponse(status_code=400, content={"error": "No access token received"})
 
-    # Optional: fetch user info
-    user_info = requests.get(
-        "https://api.github.com/user",
-        headers={"Authorization": f"Bearer {access_token}"}
-    ).json()
-
+    # OpenAI expects access_token + token_type in response
     return JSONResponse({
-        "message": "OAuth success",
         "access_token": access_token,
-        "user": {
-            "login": user_info.get("login"),
-            "name": user_info.get("name"),
-            "avatar_url": user_info.get("avatar_url")
-        }
+        "token_type": "bearer"
     })
-
 
 # Connect to the PostgreSQL database
 def get_db_connection():
